@@ -6,10 +6,14 @@ Run from this folder (works even when Scripts\\ is not on PATH):
   python -m streamlit run app.py
 
 Or double-click run.bat (Windows).
+
+Password: set APP_PASSWORD in Streamlit Cloud → Settings → Secrets, or in
+`.streamlit/secrets.toml` locally (see `.streamlit/secrets.toml.example`).
 """
 
 from __future__ import annotations
 
+import hmac
 import io
 import os
 import shutil
@@ -37,6 +41,7 @@ from sock_extractor.product_specs import (
 
 OUTPUT_PARENT = _ROOT / "output"
 SESSION_KEY = "sock_last_run"
+AUTH_SESSION_KEY = "sock_authenticated"
 LOGO_PATH = _ROOT / "assets" / "csl_logo.png"
 
 
@@ -78,6 +83,42 @@ footer {visibility: hidden;}
 
 def _hide_streamlit_chrome() -> None:
     st.markdown(_HIDE_STREAMLIT_STYLE, unsafe_allow_html=True)
+
+
+def _app_password() -> str:
+    """Password from Streamlit secrets (Cloud) or APP_PASSWORD env var (local)."""
+    try:
+        value = st.secrets["APP_PASSWORD"]
+        if value:
+            return str(value)
+    except (KeyError, FileNotFoundError, AttributeError):
+        pass
+    return os.environ.get("APP_PASSWORD", "")
+
+
+def _require_password() -> bool:
+    if st.session_state.get(AUTH_SESSION_KEY):
+        return True
+
+    expected = _app_password()
+    if not expected:
+        st.error(
+            "APP_PASSWORD is not configured. Add it under Streamlit Cloud "
+            "→ Settings → Secrets, or set APP_PASSWORD in your environment."
+        )
+        return False
+
+    st.title("Sock Mockup Extractor")
+    st.caption("Enter the password to continue.")
+    with st.form("login", clear_on_submit=False):
+        pwd = st.text_input("Password", type="password", autocomplete="current-password")
+        submitted = st.form_submit_button("Enter", type="primary", use_container_width=True)
+    if submitted:
+        if hmac.compare_digest(pwd, expected):
+            st.session_state[AUTH_SESSION_KEY] = True
+            st.rerun()
+        st.error("Incorrect password.")
+    return False
 
 
 def palette_preview_image(
@@ -242,6 +283,14 @@ def main() -> None:
         },
     )
     _hide_streamlit_chrome()
+    if not _require_password():
+        st.stop()
+
+    _, logout_col = st.columns([5, 1])
+    with logout_col:
+        if st.button("Log out", type="secondary", use_container_width=True):
+            st.session_state[AUTH_SESSION_KEY] = False
+            st.rerun()
 
     logo_col, title_col = st.columns([1, 2.5], gap="large")
     with logo_col:
