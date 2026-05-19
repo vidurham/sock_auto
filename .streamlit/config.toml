@@ -1,0 +1,3 @@
+[client]
+# Hide developer menu items (Deploy, Clear cache, etc.) for all viewers.
+toolbarMode = "viewer"

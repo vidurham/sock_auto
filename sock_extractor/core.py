@@ -163,7 +163,13 @@ def find_color_column_crop(page, spans, page_rect):
     return crop
 
 
-def process_pdf(pdf_path: str, out_dir: str, dpi: int = RENDER_DPI) -> dict:
+def process_pdf(
+    pdf_path: str,
+    out_dir: str,
+    dpi: int = RENDER_DPI,
+    target_w: int = TARGET_W,
+    target_h: int = TARGET_H,
+) -> dict:
     """Crop FLAT VIEW (PNG), color column (PNG); heel artifacts patched."""
     base = os.path.splitext(os.path.basename(pdf_path))[0]
     os.makedirs(out_dir, exist_ok=True)
@@ -299,7 +305,7 @@ def process_pdf(pdf_path: str, out_dir: str, dpi: int = RENDER_DPI) -> dict:
 
     design_img = Image.fromarray(arr)
 
-    design_final = design_img.resize((TARGET_W, TARGET_H), Image.LANCZOS)
+    design_final = design_img.resize((target_w, target_h), Image.LANCZOS)
 
     design_path = os.path.join(out_dir, f"{base}_design.png")
     design_final.save(design_path, "PNG")
@@ -580,8 +586,10 @@ def convert_pdf_to_bmp(
     out_dir: str,
     dpi: int | None = None,
     save_intermediates: bool = False,
+    target_w: int = TARGET_W,
+    target_h: int = TARGET_H,
 ) -> dict:
-    """Produce 168×402 paletted BMP + metadata."""
+    """Produce paletted BMP at target_w×target_h + metadata."""
     base = os.path.splitext(os.path.basename(pdf_path))[0]
     os.makedirs(out_dir, exist_ok=True)
 
@@ -590,7 +598,7 @@ def convert_pdf_to_bmp(
         page = doc[0]
         spans = get_text_spans(page)
         flat_rect = find_flat_view_rect(page, spans)
-        native_dpi = TARGET_W / flat_rect.width * 72.0
+        native_dpi = target_w / flat_rect.width * 72.0
         dpi = int(round(native_dpi * SUPERSAMPLE_FACTOR))
 
     hi_arr, flat_rect = render_clean_design(pdf_path, dpi=dpi)
@@ -599,7 +607,7 @@ def convert_pdf_to_bmp(
     if not palette:
         raise RuntimeError("No swatch colors found in PDF.")
 
-    indices = snap_and_downsample(hi_arr, palette, TARGET_W, TARGET_H)
+    indices = snap_and_downsample(hi_arr, palette, target_w, target_h)
     pal_img = to_paletted_image(indices, palette)
 
     bmp_path = os.path.join(out_dir, f"{base}.bmp")
@@ -626,9 +634,14 @@ def convert_pdf_to_bmp(
     return info
 
 
-def process_full_pdf(pdf_path: str, out_dir: str) -> dict:
+def process_full_pdf(
+    pdf_path: str,
+    out_dir: str,
+    target_w: int = TARGET_W,
+    target_h: int = TARGET_H,
+) -> dict:
     """Run preview extraction + BMP conversion; merged result dict."""
-    preview = process_pdf(pdf_path, out_dir)
-    bmp_info = convert_pdf_to_bmp(pdf_path, out_dir)
+    preview = process_pdf(pdf_path, out_dir, target_w=target_w, target_h=target_h)
+    bmp_info = convert_pdf_to_bmp(pdf_path, out_dir, target_w=target_w, target_h=target_h)
     preview.update(bmp_info)
     return preview

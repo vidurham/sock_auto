@@ -27,17 +27,43 @@ if str(_ROOT) not in sys.path:
 import streamlit as st
 from PIL import Image, ImageDraw
 
-from sock_extractor.core import TARGET_H, TARGET_W, process_full_pdf
+from sock_extractor.core import process_full_pdf
+from sock_extractor.product_specs import (
+    DEFAULT_SPEC,
+    DEFAULT_SPEC_INDEX,
+    PRODUCT_SPECS,
+    ProductSpec,
+)
 
 OUTPUT_PARENT = _ROOT / "output"
 SESSION_KEY = "sock_last_run"
 LOGO_PATH = _ROOT / "assets" / "csl_logo.png"
 
 
+def _hide_streamlit_chrome() -> None:
+    """Hide Streamlit Cloud GitHub / Edit toolbar actions and local Deploy button."""
+    st.markdown(
+        """
+        <style>
+        [data-testid="stToolbar"] a[href*="github.com"],
+        [data-testid="stToolbar"] a[href*="share.streamlit.io"],
+        [data-testid="stToolbar"] button[title*="Edit"],
+        [data-testid="stToolbar"] button[aria-label*="Edit"],
+        [data-testid="stToolbar"] button[title*="GitHub"],
+        [data-testid="stToolbar"] button[aria-label*="GitHub"] {
+            display: none !important;
+        }
+        .stAppDeployButton {display: none !important;}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def palette_preview_image(
     palette: list[tuple[int, int, int]],
-    width: int = TARGET_W,
-    height: int = TARGET_H,
+    width: int,
+    height: int,
 ) -> Image.Image:
     """Same pixel size as BMP / design PNG: horizontal bands, one per swatch."""
     if not palette:
@@ -68,7 +94,14 @@ def zip_run_folder(run_dir: Path) -> bytes:
     return buf.getvalue()
 
 
-def render_results(run_id: str, run_dir: Path, results: list[dict], errors: list[tuple[str, str]]) -> None:
+def render_results(
+    run_id: str,
+    run_dir: Path,
+    results: list[dict],
+    errors: list[tuple[str, str]],
+    target_w: int,
+    target_h: int,
+) -> None:
     """Show ZIP, previews, and downloads — reads from disk so reruns (e.g. after a download) still work."""
     if errors:
         for name, msg in errors:
@@ -103,11 +136,11 @@ def render_results(run_id: str, run_dir: Path, results: list[dict], errors: list
             + ", ".join(f"rgb{c}" for c in pal)
         )
 
-        pal_img = palette_preview_image(pal)
+        pal_img = palette_preview_image(pal, target_w, target_h)
 
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.markdown(f"**BMP (production)** · `{TARGET_W}×{TARGET_H}`")
+            st.markdown(f"**BMP (production)** · `{target_w}×{target_h}`")
             with open(info["bmp_path"], "rb") as f:
                 bmp_data = f.read()
             st.download_button(
@@ -120,7 +153,7 @@ def render_results(run_id: str, run_dir: Path, results: list[dict], errors: list
             st.image(info["bmp_path"], width=preview_w)
 
         with c2:
-            st.markdown(f"**Clean FLAT VIEW** · `{TARGET_W}×{TARGET_H}`")
+            st.markdown(f"**Clean FLAT VIEW** · `{target_w}×{target_h}`")
             with open(info["design_path"], "rb") as f:
                 png_data = f.read()
             st.download_button(
@@ -134,7 +167,7 @@ def render_results(run_id: str, run_dir: Path, results: list[dict], errors: list
 
         with c3:
             st.markdown(
-                f"**Palette preview** · `{TARGET_W}×{TARGET_H}` "
+                f"**Palette preview** · `{target_w}×{target_h}` "
                 "(same size as BMP — swatches top→bottom)"
             )
             buf = io.BytesIO()
@@ -179,6 +212,7 @@ def render_results(run_id: str, run_dir: Path, results: list[dict], errors: list
 
 def main() -> None:
     st.set_page_config(page_title="Sock Mockup Extractor", layout="wide")
+    _hide_streamlit_chrome()
 
     logo_col, title_col = st.columns([1, 2.5], gap="large")
     with logo_col:
@@ -190,9 +224,17 @@ def main() -> None:
         st.title("Sock Mockup Extractor")
         st.caption(
             "Custom Sock Lab–style PDFs: extracts FLAT VIEW (heel guides removed), "
-            "168×402 paletted BMP, JSON palette, and color-column preview. "
+            "paletted BMP at the selected product size, JSON palette, and color-column preview. "
             "Results stay on screen after each download."
         )
+
+    spec: ProductSpec = st.selectbox(
+        "Product type & style",
+        options=PRODUCT_SPECS,
+        index=DEFAULT_SPEC_INDEX,
+        format_func=lambda s: s.label,
+        help=f"Output size for BMP and design PNG. Default: {DEFAULT_SPEC.label}",
+    )
 
     uploaded = st.file_uploader(
         "Drop PDF(s) here or click to browse",
@@ -243,7 +285,12 @@ def main() -> None:
                         f.write(uf.getbuffer())
 
                     try:
-                        info = process_full_pdf(str(pdf_path), str(job_dir))
+                        info = process_full_pdf(
+                            str(pdf_path),
+                            str(job_dir),
+                            target_w=spec.width,
+                            target_h=spec.height,
+                        )
                         info["_basename"] = stem
                         results.append(info)
                     except Exception as e:
@@ -258,6 +305,9 @@ def main() -> None:
                     "run_dir": str(run_dir),
                     "results": results,
                     "errors": errors,
+                    "target_w": spec.width,
+                    "target_h": spec.height,
+                    "product_label": spec.label,
                 }
 
     if uploaded:
@@ -272,11 +322,14 @@ def main() -> None:
             f"**Saved output folder:** `{Path(run['run_dir']).relative_to(_ROOT)}` "
             "(you can copy files from disk anytime)"
         )
+        st.caption(f"Product: {run.get('product_label', DEFAULT_SPEC.label)}")
         render_results(
             run["run_id"],
             Path(run["run_dir"]),
             run["results"],
             run["errors"],
+            run.get("target_w", DEFAULT_SPEC.width),
+            run.get("target_h", DEFAULT_SPEC.height),
         )
 
 
