@@ -40,31 +40,44 @@ SESSION_KEY = "sock_last_run"
 LOGO_PATH = _ROOT / "assets" / "csl_logo.png"
 
 
+_HIDE_STREAMLIT_STYLE = """
+<style>
+/* Transparent header bar; keep ⋮ menu only (do not hide header entirely) */
+header[data-testid="stHeader"] {
+    background: transparent;
+}
+
+footer {visibility: hidden;}
+
+.block-container {
+    padding-top: 1rem;
+}
+
+/* Streamlit Cloud: Share, star, edit, GitHub — last toolbar item is ⋮ menu */
+[data-testid="stToolbar"] {
+    right: 0.5rem;
+}
+[data-testid="stToolbar"] a,
+[data-testid="stToolbar"] > div > *:not(:last-child),
+[data-testid="stToolbar"] button:not(:last-of-type),
+[data-testid="stToolbar"] [data-testid*="Share"],
+[data-testid="stToolbar"] [data-testid*="Favorite"],
+[data-testid="stToolbar"] [data-testid*="GitHub"],
+[data-testid="stToolbar"] [data-testid*="Edit"],
+[data-testid="stToolbar"] button[aria-label*="Share" i],
+[data-testid="stToolbar"] button[aria-label*="Favorite" i],
+[data-testid="stToolbar"] button[aria-label*="Star" i],
+[data-testid="stToolbar"] button[aria-label*="Edit" i],
+[data-testid="stToolbar"] button[aria-label*="GitHub" i] {
+    display: none !important;
+}
+.stAppDeployButton {display: none !important;}
+</style>
+"""
+
+
 def _hide_streamlit_chrome() -> None:
-    """Keep only the ⋮ app menu in the top-right toolbar."""
-    st.markdown(
-        """
-        <style>
-        /* Streamlit Cloud: Share, star, edit, GitHub, deploy — keep last control (⋮ menu) */
-        [data-testid="stToolbar"] a,
-        [data-testid="stToolbar"] > div > *:not(:last-child),
-        [data-testid="stToolbar"] button:not(:last-of-type),
-        [data-testid="stToolbar"] [data-testid*="Share"],
-        [data-testid="stToolbar"] [data-testid*="Favorite"],
-        [data-testid="stToolbar"] [data-testid*="GitHub"],
-        [data-testid="stToolbar"] [data-testid*="Edit"],
-        [data-testid="stToolbar"] button[aria-label*="Share" i],
-        [data-testid="stToolbar"] button[aria-label*="Favorite" i],
-        [data-testid="stToolbar"] button[aria-label*="Star" i],
-        [data-testid="stToolbar"] button[aria-label*="Edit" i],
-        [data-testid="stToolbar"] button[aria-label*="GitHub" i] {
-            display: none !important;
-        }
-        .stAppDeployButton {display: none !important;}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown(_HIDE_STREAMLIT_STYLE, unsafe_allow_html=True)
 
 
 def palette_preview_image(
@@ -218,7 +231,16 @@ def render_results(
 
 
 def main() -> None:
-    st.set_page_config(page_title="Sock Mockup Extractor", layout="wide")
+    st.set_page_config(
+        page_title="Sock Mockup Extractor",
+        layout="wide",
+        initial_sidebar_state="collapsed",
+        menu_items={
+            "Get Help": None,
+            "Report a bug": None,
+            "About": None,
+        },
+    )
     _hide_streamlit_chrome()
 
     logo_col, title_col = st.columns([1, 2.5], gap="large")
