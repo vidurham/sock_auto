@@ -41,16 +41,23 @@ LOGO_PATH = _ROOT / "assets" / "csl_logo.png"
 
 
 def _hide_streamlit_chrome() -> None:
-    """Hide Streamlit Cloud GitHub / Edit toolbar actions and local Deploy button."""
+    """Keep only the ⋮ app menu in the top-right toolbar."""
     st.markdown(
         """
         <style>
-        [data-testid="stToolbar"] a[href*="github.com"],
-        [data-testid="stToolbar"] a[href*="share.streamlit.io"],
-        [data-testid="stToolbar"] button[title*="Edit"],
-        [data-testid="stToolbar"] button[aria-label*="Edit"],
-        [data-testid="stToolbar"] button[title*="GitHub"],
-        [data-testid="stToolbar"] button[aria-label*="GitHub"] {
+        /* Streamlit Cloud: Share, star, edit, GitHub, deploy — keep last control (⋮ menu) */
+        [data-testid="stToolbar"] a,
+        [data-testid="stToolbar"] > div > *:not(:last-child),
+        [data-testid="stToolbar"] button:not(:last-of-type),
+        [data-testid="stToolbar"] [data-testid*="Share"],
+        [data-testid="stToolbar"] [data-testid*="Favorite"],
+        [data-testid="stToolbar"] [data-testid*="GitHub"],
+        [data-testid="stToolbar"] [data-testid*="Edit"],
+        [data-testid="stToolbar"] button[aria-label*="Share" i],
+        [data-testid="stToolbar"] button[aria-label*="Favorite" i],
+        [data-testid="stToolbar"] button[aria-label*="Star" i],
+        [data-testid="stToolbar"] button[aria-label*="Edit" i],
+        [data-testid="stToolbar"] button[aria-label*="GitHub" i] {
             display: none !important;
         }
         .stAppDeployButton {display: none !important;}
