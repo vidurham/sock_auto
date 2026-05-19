@@ -82,63 +82,83 @@ footer {visibility: hidden;}
 
 _LOGIN_PAGE_STYLE = """
 <style>
-.main .block-container {
-    max-width: 28rem;
-    padding-top: clamp(2rem, 12vh, 5rem);
-    padding-bottom: 3rem;
-    margin-left: auto;
-    margin-right: auto;
-}
-[data-testid="stImage"] {
+section.main > div {
     display: flex;
     justify-content: center;
-    margin-bottom: 0.25rem;
 }
+.main .block-container {
+    width: 16.5rem;
+    max-width: 16.5rem;
+    min-width: 0;
+    padding: 18vh 0.75rem 2rem;
+}
+[data-testid="stImage"] {
+    width: auto !important;
+    max-width: 7.5rem;
+    margin: 0 auto 0.35rem;
+}
+[data-testid="stImage"] > div,
 [data-testid="stImage"] img {
-    max-width: 220px;
+    width: 7.5rem !important;
+    max-width: 7.5rem !important;
+    margin: 0 auto;
+    display: block;
 }
 .login-heading {
     text-align: center;
-    margin: 0 0 1.75rem 0;
+    margin: 0 0 0.85rem 0;
 }
 .login-heading h1 {
-    font-size: 1.65rem;
+    font-size: 1.05rem;
     font-weight: 600;
-    letter-spacing: -0.02em;
-    margin: 0 0 0.5rem 0;
-    line-height: 1.25;
+    letter-spacing: -0.01em;
+    margin: 0 0 0.2rem 0;
+    line-height: 1.3;
 }
 .login-heading p {
-    color: rgba(250, 250, 250, 0.62);
-    font-size: 0.95rem;
+    color: rgba(250, 250, 250, 0.5);
+    font-size: 0.72rem;
     margin: 0;
-    line-height: 1.5;
+    line-height: 1.35;
 }
 div[data-testid="stForm"] {
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    border-radius: 12px !important;
-    padding: 1.25rem 1.25rem 0.75rem !important;
-    background: rgba(255, 255, 255, 0.03) !important;
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
-}
-div[data-testid="stForm"] label p {
-    font-size: 0.85rem;
-    font-weight: 500;
-    color: rgba(250, 250, 250, 0.85);
+    width: 100%;
+    max-width: 16.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 8px !important;
+    padding: 0.65rem 0.7rem 0.5rem !important;
+    background: rgba(255, 255, 255, 0.02) !important;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.2);
 }
 div[data-testid="stForm"] input {
-    border-radius: 8px !important;
+    font-size: 0.8rem !important;
+    padding: 0.35rem 0.5rem !important;
+    min-height: 0 !important;
+    border-radius: 6px !important;
+}
+div[data-testid="stForm"] [data-testid="stFormSubmitButton"] {
+    display: flex;
+    justify-content: center;
+    margin-top: 0.15rem;
 }
 div[data-testid="stForm"] button[kind="primaryFormSubmit"] {
-    border-radius: 8px !important;
+    width: auto !important;
+    min-height: 1.75rem !important;
+    padding: 0.25rem 1rem !important;
+    font-size: 0.78rem !important;
     font-weight: 600 !important;
-    margin-top: 0.25rem !important;
+    border-radius: 6px !important;
 }
 .login-footer {
     text-align: center;
-    margin-top: 1.25rem;
-    font-size: 0.8rem;
-    color: rgba(250, 250, 250, 0.4);
+    margin-top: 0.65rem;
+    font-size: 0.65rem;
+    color: rgba(250, 250, 250, 0.35);
+}
+div[data-testid="stAlert"] {
+    font-size: 0.75rem;
+    padding: 0.4rem 0.55rem;
+    margin-top: 0.5rem;
 }
 </style>
 """
@@ -163,7 +183,7 @@ def _render_login_page(expected: str) -> None:
     st.markdown(_LOGIN_PAGE_STYLE, unsafe_allow_html=True)
 
     if LOGO_PATH.is_file():
-        st.image(str(LOGO_PATH), use_container_width=True)
+        st.image(str(LOGO_PATH), width=100)
     else:
         st.markdown(
             """
@@ -178,7 +198,7 @@ def _render_login_page(expected: str) -> None:
         """
         <div class="login-heading">
           <h1>Sock Mockup Extractor</h1>
-          <p>Sign in to extract production-ready BMPs, palettes, and flat views from PDF mockups.</p>
+          <p>Sign in to continue</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -188,14 +208,11 @@ def _render_login_page(expected: str) -> None:
         pwd = st.text_input(
             "Password",
             type="password",
-            placeholder="Enter your password",
+            placeholder="Password",
             autocomplete="current-password",
+            label_visibility="collapsed",
         )
-        submitted = st.form_submit_button(
-            "Sign in",
-            type="primary",
-            use_container_width=True,
-        )
+        submitted = st.form_submit_button("Sign in", type="primary")
 
     if submitted:
         if hmac.compare_digest(pwd, expected):
@@ -204,7 +221,7 @@ def _render_login_page(expected: str) -> None:
         st.error("Incorrect password. Please try again.")
 
     st.markdown(
-        '<p class="login-footer">Authorized team access only</p>',
+        '<p class="login-footer">Team access only</p>',
         unsafe_allow_html=True,
     )
 
