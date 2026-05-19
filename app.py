@@ -114,9 +114,16 @@ section.main > div {
     flex-direction: column;
     align-items: center;
 }
+.main .block-container [data-testid="element-container"]:has([data-testid="stImage"]) {
+    display: flex !important;
+    justify-content: center !important;
+    width: 100% !important;
+}
 [data-testid="stImage"] {
     width: 6.25rem !important;
     margin: 0 auto 0.35rem !important;
+    display: flex !important;
+    justify-content: center !important;
 }
 [data-testid="stImage"] > div,
 [data-testid="stImage"] img {
@@ -159,9 +166,11 @@ div[data-testid="stForm"] input {
     min-height: 0 !important;
     border-radius: 6px !important;
 }
-div[data-testid="stForm"] [data-testid="stFormSubmitButton"] {
+div[data-testid="stForm"] [data-testid="stFormSubmitButton"],
+div[data-testid="stForm"] [data-testid="stFormSubmitButton"] > div {
     display: flex !important;
     justify-content: center !important;
+    width: 100% !important;
     margin-top: 0.15rem;
 }
 div[data-testid="stForm"] button[kind="primaryFormSubmit"] {
@@ -171,7 +180,9 @@ div[data-testid="stForm"] button[kind="primaryFormSubmit"] {
     font-size: 0.78rem !important;
     font-weight: 600 !important;
     border-radius: 6px !important;
-    margin: 0 auto !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    display: block !important;
 }
 .login-footer {
     text-align: center;
@@ -212,7 +223,9 @@ def _render_login_page(expected: str) -> None:
     _, col, _ = st.columns([1, 1, 1])
     with col:
         if LOGO_PATH.is_file():
-            st.image(str(LOGO_PATH), width=100)
+            _l, logo_mid, _r = st.columns([2, 3, 2])
+            with logo_mid:
+                st.image(str(LOGO_PATH), width=100)
         else:
             st.markdown(
                 """
@@ -241,7 +254,9 @@ def _render_login_page(expected: str) -> None:
                 autocomplete="current-password",
                 label_visibility="collapsed",
             )
-            submitted = st.form_submit_button("Sign in", type="primary")
+            _bl, btn_mid, _br = st.columns([2, 3, 2])
+            with btn_mid:
+                submitted = st.form_submit_button("Sign in", type="primary")
 
         if submitted:
             if hmac.compare_digest(pwd, expected):
