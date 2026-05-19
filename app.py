@@ -80,6 +80,69 @@ footer {visibility: hidden;}
 </style>
 """
 
+_LOGIN_PAGE_STYLE = """
+<style>
+.main .block-container {
+    max-width: 28rem;
+    padding-top: clamp(2rem, 12vh, 5rem);
+    padding-bottom: 3rem;
+    margin-left: auto;
+    margin-right: auto;
+}
+[data-testid="stImage"] {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 0.25rem;
+}
+[data-testid="stImage"] img {
+    max-width: 220px;
+}
+.login-heading {
+    text-align: center;
+    margin: 0 0 1.75rem 0;
+}
+.login-heading h1 {
+    font-size: 1.65rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin: 0 0 0.5rem 0;
+    line-height: 1.25;
+}
+.login-heading p {
+    color: rgba(250, 250, 250, 0.62);
+    font-size: 0.95rem;
+    margin: 0;
+    line-height: 1.5;
+}
+div[data-testid="stForm"] {
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 12px !important;
+    padding: 1.25rem 1.25rem 0.75rem !important;
+    background: rgba(255, 255, 255, 0.03) !important;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+div[data-testid="stForm"] label p {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: rgba(250, 250, 250, 0.85);
+}
+div[data-testid="stForm"] input {
+    border-radius: 8px !important;
+}
+div[data-testid="stForm"] button[kind="primaryFormSubmit"] {
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    margin-top: 0.25rem !important;
+}
+.login-footer {
+    text-align: center;
+    margin-top: 1.25rem;
+    font-size: 0.8rem;
+    color: rgba(250, 250, 250, 0.4);
+}
+</style>
+"""
+
 
 def _hide_streamlit_chrome() -> None:
     st.markdown(_HIDE_STREAMLIT_STYLE, unsafe_allow_html=True)
@@ -96,6 +159,56 @@ def _app_password() -> str:
     return os.environ.get("APP_PASSWORD", "")
 
 
+def _render_login_page(expected: str) -> None:
+    st.markdown(_LOGIN_PAGE_STYLE, unsafe_allow_html=True)
+
+    if LOGO_PATH.is_file():
+        st.image(str(LOGO_PATH), use_container_width=True)
+    else:
+        st.markdown(
+            """
+            <div class="login-heading">
+              <h1>Custom Sock Lab</h1>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown(
+        """
+        <div class="login-heading">
+          <h1>Sock Mockup Extractor</h1>
+          <p>Sign in to extract production-ready BMPs, palettes, and flat views from PDF mockups.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    with st.form("login", clear_on_submit=False, border=False):
+        pwd = st.text_input(
+            "Password",
+            type="password",
+            placeholder="Enter your password",
+            autocomplete="current-password",
+        )
+        submitted = st.form_submit_button(
+            "Sign in",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if submitted:
+        if hmac.compare_digest(pwd, expected):
+            st.session_state[AUTH_SESSION_KEY] = True
+            st.rerun()
+        st.error("Incorrect password. Please try again.")
+
+    st.markdown(
+        '<p class="login-footer">Authorized team access only</p>',
+        unsafe_allow_html=True,
+    )
+
+
 def _require_password() -> bool:
     if st.session_state.get(AUTH_SESSION_KEY):
         return True
@@ -108,16 +221,7 @@ def _require_password() -> bool:
         )
         return False
 
-    st.title("Sock Mockup Extractor")
-    st.caption("Enter the password to continue.")
-    with st.form("login", clear_on_submit=False):
-        pwd = st.text_input("Password", type="password", autocomplete="current-password")
-        submitted = st.form_submit_button("Enter", type="primary", use_container_width=True)
-    if submitted:
-        if hmac.compare_digest(pwd, expected):
-            st.session_state[AUTH_SESSION_KEY] = True
-            st.rerun()
-        st.error("Incorrect password.")
+    _render_login_page(expected)
     return False
 
 
