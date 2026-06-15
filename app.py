@@ -42,7 +42,7 @@ from sock_extractor.product_specs import (
 OUTPUT_PARENT = _ROOT / "output"
 SESSION_KEY = "sock_last_run"
 AUTH_SESSION_KEY = "sock_authenticated"
-REQUIRE_PASSWORD = True
+REQUIRE_PASSWORD = False
 LOGO_PATH = _ROOT / "assets" / "csl_logo.png"
 
 

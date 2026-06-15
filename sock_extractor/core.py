@@ -564,13 +564,43 @@ def _remove_heel(arr, heel_rects, to_design_px, stroke_widths, body_color, heel_
                     vg = float(np.abs(np.diff(r16, axis=0)).sum(2).mean())
                     banded = hg < 5.0 and hg < 0.30 * (vg + 1e-3)
                 if banded:
-                    # Rebuild the WHOLE edge-attached rect (not just the ellipse) row by
-                    # row from the interior pixel, so the oval is fully covered whatever
-                    # its drawn shape (no leftover wedge) and the guide stripe/body run
-                    # unbroken to the edge.
+                    # The lens hugs an edge; fill it by reflecting the adjacent INTERIOR
+                    # block horizontally into it. The patterns these ovals sit on (Navajo
+                    # borders) are horizontally symmetric, so the mirror continues the 2D
+                    # motif structure — instead of tiling a single interior column, which
+                    # fuses short horizontal motif-lines into a solid blob at the edge.
                     rx_lo, rx_hi = (0, lx1) if hugs_left else (lx0, w)
-                    src_col = arr[y0m:y1m, ref_x]
-                    arr[y0m:y1m, rx_lo:rx_hi] = src_col[:, None, :]
+                    width = rx_hi - rx_lo
+                    if hugs_left:
+                        src = arr[y0m:y1m, rx_hi:min(w, rx_hi + width)][:, ::-1]
+                        sw = src.shape[1]
+                        if sw:
+                            arr[y0m:y1m, rx_hi - sw:rx_hi] = src
+                            if sw < width:  # ran out of interior; extend nearest column
+                                arr[y0m:y1m, :rx_hi - sw] = arr[y0m:y1m, rx_hi - sw:rx_hi - sw + 1]
+                    else:
+                        src = arr[y0m:y1m, max(0, rx_lo - width):rx_lo][:, ::-1]
+                        sw = src.shape[1]
+                        if sw:
+                            arr[y0m:y1m, rx_lo:rx_lo + sw] = src
+                            if sw < width:
+                                arr[y0m:y1m, rx_lo + sw:] = arr[y0m:y1m, rx_lo + sw - 1:rx_lo + sw]
+                    # The oval can dip past the band's lower white separator line into the
+                    # region below, where the side edges are plain background (the motif
+                    # there is centred). Don't let the mirror bleed colour below that line:
+                    # find the full-width separator inside the oval and reset the side
+                    # block beneath it to the body colour.
+                    sep_bot = None
+                    for yy in range(y0m, y1m):
+                        if hugs_left:
+                            inter = arr[yy, rx_hi:min(w, rx_hi + 40)]
+                        else:
+                            inter = arr[yy, max(0, rx_lo - 40):rx_lo]
+                        if inter.shape[0] and float(np.mean(
+                                np.abs(inter.astype(np.int16) - 255).sum(1) <= 60)) > 0.7:
+                            sep_bot = yy
+                    if sep_bot is not None and sep_bot + 1 < y1m:
+                        arr[sep_bot + 1:y1m, rx_lo:rx_hi] = np.array(body_color, dtype=arr.dtype)
                 else:
                     src = _aware_block(arr, y0m, y1m, cols)
                     if src is not None:
@@ -983,6 +1013,7 @@ def snap_and_downsample(
     straighten_stripe_edges: bool = True,
     edge_margin: int = 4,
     equalize_stripes: bool = True,
+    mirror_symmetry: bool = False,
 ) -> np.ndarray:
     """LAB nearest-color snap + mode pool to palette indices.
 
@@ -1033,7 +1064,59 @@ def snap_and_downsample(
 
     if equalize_stripes:
         _equalize_equal_width_stripes(result, nearest, H, target_h, W, P)
+    if mirror_symmetry:
+        result = _mirror_symmetric_bands(result, P)
     return result
+
+
+def _mirror_symmetric_bands(idx, P, min_sym: float = 0.70, min_panel: int = 8,
+                            sep_frac: float = 0.92) -> np.ndarray:
+    """Enforce vertical mirror-symmetry on bands that are *meant* to be symmetric
+    (e.g. Navajo borders), by reflecting the top half of each near-symmetric panel
+    onto the bottom.
+
+    Downsampling a symmetric design to 168px breaks the symmetry slightly (the
+    motif's centre line doesn't land on the pixel grid the same way top vs bottom),
+    so equal halves render a touch differently. This finds horizontal panels —
+    delimited by full-width solid separator rows — that are already MOSTLY
+    symmetric (so the symmetry is intended, not coincidental) and makes them
+    exactly symmetric about their best axis. Panels that aren't near-symmetric
+    (logos, text, asymmetric art) fall below ``min_sym`` and are left untouched.
+
+    Opt-in: it intentionally diverges from a ground-truth bitmap when that bitmap
+    is itself asymmetric, so it is only applied when the caller asks for it.
+    """
+    H, W = idx.shape
+    out = idx.copy()
+    is_sep = np.zeros(H, bool)
+    for y in range(H):
+        c = np.bincount(idx[y], minlength=P)
+        if c.max() >= sep_frac * W:
+            is_sep[y] = True
+    bounds = [0]
+    for y in range(1, H):
+        if is_sep[y] != is_sep[y - 1]:
+            bounds.append(y)
+    bounds.append(H)
+    for i in range(len(bounds) - 1):
+        p0, p1 = bounds[i], bounds[i + 1]
+        if p1 - p0 < min_panel or is_sep[p0]:
+            continue
+        best_s, best_ax = -1.0, None
+        for ax in range(p0 + 4, p1 - 3):
+            n = min(ax - p0, p1 - ax)
+            if n < 4:
+                continue
+            top = out[ax - n:ax]
+            bot = out[ax:ax + n][::-1]
+            k = min(len(top), len(bot))
+            s = float(np.mean(top[:k] == bot[:k]))
+            if s > best_s:
+                best_s, best_ax = s, ax
+        if best_ax is not None and best_s >= min_sym:
+            n = min(best_ax - p0, p1 - best_ax)
+            out[best_ax:best_ax + n] = out[best_ax - n:best_ax][::-1]
+    return out
 
 
 def _equalize_equal_width_stripes(result, nearest, H, target_h, W, P,
@@ -1128,6 +1211,7 @@ def convert_pdf_to_bmp(
     save_intermediates: bool = False,
     target_w: int = TARGET_W,
     target_h: int = TARGET_H,
+    mirror_symmetry: bool = False,
 ) -> dict:
     """Produce paletted BMP at target_w×target_h + metadata."""
     base = os.path.splitext(os.path.basename(pdf_path))[0]
@@ -1147,7 +1231,8 @@ def convert_pdf_to_bmp(
     if not palette:
         raise RuntimeError("No swatch colors found in PDF.")
 
-    indices = snap_and_downsample(hi_arr, palette, target_w, target_h)
+    indices = snap_and_downsample(hi_arr, palette, target_w, target_h,
+                                  mirror_symmetry=mirror_symmetry)
     pal_img = to_paletted_image(indices, palette)
 
     bmp_path = os.path.join(out_dir, f"{base}.bmp")
@@ -1179,10 +1264,12 @@ def process_full_pdf(
     out_dir: str,
     target_w: int = TARGET_W,
     target_h: int = TARGET_H,
+    mirror_symmetry: bool = False,
 ) -> dict:
     """Run preview extraction + BMP conversion; merged result dict."""
     preview = process_pdf(pdf_path, out_dir, target_w=target_w, target_h=target_h)
-    bmp_info = convert_pdf_to_bmp(pdf_path, out_dir, target_w=target_w, target_h=target_h)
+    bmp_info = convert_pdf_to_bmp(pdf_path, out_dir, target_w=target_w, target_h=target_h,
+                                  mirror_symmetry=mirror_symmetry)
     preview.update(bmp_info)
     return preview
 
