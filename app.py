@@ -31,7 +31,7 @@ if str(_ROOT) not in sys.path:
 import streamlit as st
 from PIL import Image, ImageDraw
 
-from sock_extractor.core import process_full_pdf
+from sock_extractor.core import process_full_pdf, resolve_output_size
 from sock_extractor.product_specs import (
     DEFAULT_SPEC,
     DEFAULT_SPEC_INDEX,
@@ -42,6 +42,7 @@ from sock_extractor.product_specs import (
 OUTPUT_PARENT = _ROOT / "output"
 SESSION_KEY = "sock_last_run"
 AUTH_SESSION_KEY = "sock_authenticated"
+REQUIRE_PASSWORD = True
 LOGO_PATH = _ROOT / "assets" / "csl_logo.png"
 
 
@@ -271,6 +272,8 @@ def _render_login_page(expected: str) -> None:
 
 
 def _require_password() -> bool:
+    if not REQUIRE_PASSWORD:
+        return True
     if st.session_state.get(AUTH_SESSION_KEY):
         return True
 
@@ -356,17 +359,28 @@ def render_results(
         st.divider()
         st.subheader(base)
 
+        tw = info.get("target_w", target_w)
+        th = info.get("target_h", target_h)
+        src_note = {"manual": "manual selection",
+                    "auto": "auto-detected",
+                    "auto (geometry-resolved)": "auto-detected (size cross-checked against artwork)"}
+        st.caption(
+            f"Size: **{info.get('size_label', f'{tw}×{th} px')}**  ·  {tw}×{th}px"
+            + (f"  ·  {src_note.get(info.get('size_source'), info.get('size_source'))}"
+               if info.get("size_source") else "")
+        )
+
         pal = info.get("palette", [])
         st.caption(
             f"Palette ({len(pal)} colors): "
             + ", ".join(f"rgb{c}" for c in pal)
         )
 
-        pal_img = palette_preview_image(pal, target_w, target_h)
+        pal_img = palette_preview_image(pal, tw, th)
 
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.markdown(f"**BMP (production)** · `{target_w}×{target_h}`")
+            st.markdown(f"**BMP (production)** · `{tw}×{th}`")
             with open(info["bmp_path"], "rb") as f:
                 bmp_data = f.read()
             st.download_button(
@@ -379,7 +393,7 @@ def render_results(
             st.image(info["bmp_path"], width=preview_w)
 
         with c2:
-            st.markdown(f"**Clean FLAT VIEW** · `{target_w}×{target_h}`")
+            st.markdown(f"**Clean FLAT VIEW** · `{tw}×{th}`")
             with open(info["design_path"], "rb") as f:
                 png_data = f.read()
             st.download_button(
@@ -393,7 +407,7 @@ def render_results(
 
         with c3:
             st.markdown(
-                f"**Palette preview** · `{target_w}×{target_h}` "
+                f"**Palette preview** · `{tw}×{th}` "
                 "(same size as BMP — swatches top→bottom)"
             )
             buf = io.BytesIO()
@@ -451,11 +465,12 @@ def main() -> None:
     if not _require_password():
         st.stop()
 
-    _, logout_col = st.columns([5, 1])
-    with logout_col:
-        if st.button("Log out", type="secondary", use_container_width=True):
-            st.session_state[AUTH_SESSION_KEY] = False
-            st.rerun()
+    if REQUIRE_PASSWORD:
+        _, logout_col = st.columns([5, 1])
+        with logout_col:
+            if st.button("Log out", type="secondary", use_container_width=True):
+                st.session_state[AUTH_SESSION_KEY] = False
+                st.rerun()
 
     logo_col, title_col = st.columns([1, 2.5], gap="large")
     with logo_col:
@@ -467,16 +482,21 @@ def main() -> None:
         st.title("Sock Mockup Extractor")
         st.caption(
             "Custom Sock Lab–style PDFs: extracts FLAT VIEW (heel guides removed), "
-            "paletted BMP at the selected product size, JSON palette, and color-column preview. "
+            "paletted BMP at the auto-detected (or chosen) product size, JSON palette, and color-column preview. "
             "Results stay on screen after each download."
         )
 
-    spec: ProductSpec = st.selectbox(
-        "Product type & style",
-        options=PRODUCT_SPECS,
-        index=DEFAULT_SPEC_INDEX,
-        format_func=lambda s: s.label,
-        help=f"Output size for BMP and design PNG. Default: {DEFAULT_SPEC.label}",
+    AUTO_SIZE = "__auto__"
+    size_choice = st.selectbox(
+        "Output size",
+        options=[AUTO_SIZE, *PRODUCT_SPECS],
+        index=0,
+        format_func=lambda s: "Auto-detect from each PDF (recommended)" if s == AUTO_SIZE else s.label,
+        help=(
+            "Auto-detect reads the product type, length and flat-view proportions "
+            "from each PDF and picks the matching production size. Choose a specific "
+            "size to force it for every file."
+        ),
     )
 
     uploaded = st.file_uploader(
@@ -528,13 +548,27 @@ def main() -> None:
                         f.write(uf.getbuffer())
 
                     try:
+                        if size_choice == AUTO_SIZE:
+                            r = resolve_output_size(str(pdf_path))
+                            tw, th = r["width"], r["height"]
+                            size_label = (
+                                r["spec"].label if r["spec"]
+                                else f"Derived from artwork · {tw}×{th} px"
+                            )
+                            size_source = r["source"]
+                        else:
+                            tw, th = size_choice.width, size_choice.height
+                            size_label = size_choice.label
+                            size_source = "manual"
                         info = process_full_pdf(
                             str(pdf_path),
                             str(job_dir),
-                            target_w=spec.width,
-                            target_h=spec.height,
+                            target_w=tw,
+                            target_h=th,
                         )
                         info["_basename"] = stem
+                        info["target_w"], info["target_h"] = tw, th
+                        info["size_label"], info["size_source"] = size_label, size_source
                         results.append(info)
                     except Exception as e:
                         errors.append((safe_name, str(e)))
@@ -548,9 +582,12 @@ def main() -> None:
                     "run_dir": str(run_dir),
                     "results": results,
                     "errors": errors,
-                    "target_w": spec.width,
-                    "target_h": spec.height,
-                    "product_label": spec.label,
+                    "target_w": DEFAULT_SPEC.width,
+                    "target_h": DEFAULT_SPEC.height,
+                    "product_label": (
+                        "Auto-detected per file" if size_choice == AUTO_SIZE
+                        else size_choice.label
+                    ),
                 }
 
     if uploaded:
