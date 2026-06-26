@@ -28,9 +28,11 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+import numpy as np
 import streamlit as st
 from PIL import Image, ImageDraw
 
+from bitmap_editor import bitmap_editor
 from sock_extractor.core import process_full_pdf, resolve_output_size
 from sock_extractor.product_specs import (
     DEFAULT_SPEC,
@@ -42,6 +44,7 @@ from sock_extractor.product_specs import (
 OUTPUT_PARENT = _ROOT / "output"
 SESSION_KEY = "sock_last_run"
 AUTH_SESSION_KEY = "sock_authenticated"
+BITMAP_EDIT_KEY = "bitmap_edit_target"
 REQUIRE_PASSWORD = True
 LOGO_PATH = _ROOT / "assets" / "csl_logo.png"
 
@@ -312,6 +315,14 @@ def palette_preview_image(
     return img
 
 
+def load_bmp_indices(bmp_path: str | Path) -> np.ndarray:
+    """Read a paletted production BMP into a (H,W) index array."""
+    img = Image.open(bmp_path)
+    if img.mode != "P":
+        raise ValueError(f"Expected paletted BMP, got mode {img.mode!r}")
+    return np.array(img, dtype=np.uint8)
+
+
 def zip_run_folder(run_dir: Path) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -436,7 +447,7 @@ def render_results(
                 mime="image/png",
                 key=f"col_{run_id}_{base}",
             )
-            st.image(col_bytes, use_container_width=True)
+            st.image(col_bytes, width="stretch")
 
         if info.get("palette_path") and os.path.isfile(info["palette_path"]):
             with open(info["palette_path"], "rb") as f:
@@ -448,6 +459,41 @@ def render_results(
                 mime="application/json",
                 key=f"json_{run_id}_{base}",
             )
+
+        edit_id = f"{run_id}::{base}"
+        eb1, eb2 = st.columns([1, 4])
+        with eb1:
+            if st.button(
+                "Edit bitmap",
+                key=f"editbmp_{edit_id}",
+                help="Open the zoomed 1px palette brush on this production BMP",
+            ):
+                st.session_state[BITMAP_EDIT_KEY] = edit_id
+                st.rerun()
+        with eb2:
+            if st.session_state.get(BITMAP_EDIT_KEY) == edit_id:
+                if st.button("Close editor", key=f"closebmp_{edit_id}"):
+                    st.session_state[BITMAP_EDIT_KEY] = None
+                    st.rerun()
+
+        if st.session_state.get(BITMAP_EDIT_KEY) == edit_id:
+            palette = [tuple(int(v) for v in c) for c in pal]
+            try:
+                indices = load_bmp_indices(info["bmp_path"])
+            except Exception as e:
+                st.error(f"Could not load BMP for editing: {e}")
+            else:
+                st.markdown("##### Bitmap editor")
+                st.caption(
+                    "Click grid cells to paint. Use **Fit all** / zoom in the toolbar, "
+                    "then download the edited BMP when done."
+                )
+                bitmap_editor(
+                    indices,
+                    palette,
+                    stack_key=edit_id,
+                    design_name=base,
+                )
 
 
 def main() -> None:
@@ -468,7 +514,7 @@ def main() -> None:
     if REQUIRE_PASSWORD:
         _, logout_col = st.columns([5, 1])
         with logout_col:
-            if st.button("Log out", type="secondary", use_container_width=True):
+            if st.button("Log out", type="secondary", width="stretch"):
                 st.session_state[AUTH_SESSION_KEY] = False
                 st.rerun()
 
@@ -514,12 +560,13 @@ def main() -> None:
             "Process PDFs",
             type="primary",
             disabled=not uploaded,
-            use_container_width=True,
+            width="stretch",
         )
     with btn_right:
         if st.session_state[SESSION_KEY] is not None:
             if st.button("Clear results from page"):
                 st.session_state[SESSION_KEY] = None
+                st.session_state[BITMAP_EDIT_KEY] = None
                 st.rerun()
 
     spin_left, _ = st.columns([1, 3])

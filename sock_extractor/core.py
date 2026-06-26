@@ -937,6 +937,92 @@ def extract_palette_from_pdf(pdf_path: str, max_colors: int = 16, merge: int = 1
 
 
 
+def _redact_heel_paths(page, heel_rects, body_color=None, heel_fills=None):
+    """Remove heel-oval and guide-line *vector paths* so the artwork under them
+    renders through — recovering the true heel pattern exactly instead of
+    reconstructing it after rasterisation (Toyota: cream with the black swirl
+    carrying through).
+
+    Gated for safety: an oval whose fill equals the body colour is a flat
+    body-coloured heel patch (e.g. Wayne Sanderson's camo) — those are KEPT and
+    left to the existing flat-fill path, so body-heel designs are unchanged.
+    Accent-coloured ovals (Toyota red, Coffman/Honorlock blue) and the guide
+    line are revealed.
+
+    Returns (n_paths_removed, kept_rects) where kept_rects still need the raster
+    ``_remove_heel`` (body ovals; everything on a flattened/raster PDF).
+    """
+    if not heel_rects:
+        return 0, [], 0
+    before = len(page.get_drawings())
+    kept = []
+    annotated = 0
+    for r in heel_rects:
+        is_line = r.height < 4
+        if is_line:
+            # The guide line is a blue stroke; redaction leaves a residue that
+            # snaps to cream. Heal it in raster instead (clean vertical fill).
+            kept.append(r)
+            continue
+        if body_color is not None and heel_fills is not None:
+            fill = heel_fills.get((round(r.x0, 2), round(r.y0, 2),
+                                   round(r.x1, 2), round(r.y1, 2)))
+            if fill is not None and sum(abs(a - b) for a, b in zip(fill, body_color)) <= 40:
+                kept.append(r)            # body-coloured patch -> keep flat-fill
+                continue
+        # accent oval: margin 8 removes BOTH the fill and the 0.75pt outline stroke
+        page.add_redact_annot(fitz.Rect(r.x0 - 8, r.y0 - 8, r.x1 + 8, r.y1 + 8),
+                              fill=None)
+        annotated += 1
+    if annotated == 0:
+        return 0, kept, 0
+    page.apply_redactions(graphics=fitz.PDF_REDACT_LINE_ART_REMOVE_IF_COVERED)
+    return before - len(page.get_drawings()), kept, annotated
+
+
+def _reveal_left_void(arr, revealed_rects, to_design_px, body_color,
+                      min_density_gain=0.12):
+    """Decide whether a heel reveal should be REJECTED (True == reject, fall back
+    to the constructed raster fill).
+
+    A reveal is only trustworthy when the artwork genuinely continues under the
+    oval and fills the lens with pattern — which shows up as the lens coming back
+    *denser* (less body colour) than the rows around it (Toyota's swirls converge
+    at the heel: ~0.20 less body inside than outside). When the artwork does NOT
+    continue — small-motif or interrupted patterns (argyle, stripes, repeating
+    icons) — the lens comes back equal-or-emptier (void/gap), and the old
+    constructed fill is the correct, verified result.
+
+    Conservative by design: anything that isn't a confident, well-filled reveal
+    is rejected, so this can only ever fall back to the proven behaviour, never
+    regress it. Requires EVERY revealed oval to clear the bar."""
+    H, W = arr.shape[:2]
+    bc = np.array(body_color, np.int16)
+
+    def body_frac(block):
+        if block.size == 0:
+            return 1.0
+        d = np.abs(block.reshape(-1, 3).astype(np.int16) - bc).sum(1)
+        return float((d <= 40).mean())
+
+    if not revealed_rects:
+        return False
+    for r in revealed_rects:
+        rx0, ry0, rx1, ry1 = to_design_px(r, 0)
+        if rx1 <= rx0 or ry1 <= ry0:
+            return True
+        inside = arr[ry0:ry1, rx0:rx1]
+        band = max(4, (ry1 - ry0) // 2)
+        above = arr[max(0, ry0 - band):ry0, rx0:rx1]
+        below = arr[ry1:min(H, ry1 + band), rx0:rx1]
+        parts = [b.reshape(-1, 3) for b in (above, below) if b.size]
+        surround = np.vstack(parts) if parts else np.empty((0, 3), arr.dtype)
+        density_gain = body_frac(surround) - body_frac(inside)
+        if density_gain < min_density_gain:
+            return True   # not a confident, well-filled reveal -> reject
+    return False
+
+
 def render_clean_design(pdf_path: str, dpi: int) -> tuple[np.ndarray, fitz.Rect]:
     """Render FLAT VIEW clip at dpi with heel guides patched out."""
     doc = fitz.open(pdf_path)
@@ -971,9 +1057,24 @@ def render_clean_design(pdf_path: str, dpi: int) -> tuple[np.ndarray, fitz.Rect]
         flat_rect.y1 - inset,
     )
 
+    stroke_widths, heel_fills = _drawing_maps(page)
+    # cheap low-res probe to learn the body colour BEFORE deciding which ovals
+    # are body-coloured patches (kept) vs accent overlays (revealed).
+    _pp = page.get_pixmap(matrix=fitz.Matrix(0.5, 0.5), clip=render_rect, alpha=False)
+    _parr = np.frombuffer(_pp.samples, dtype=np.uint8).reshape(_pp.height, _pp.width, 3)
+    _body_probe = _dominant_body_color(_parr, None)
+    heel_removed, heel_kept, n_accent = _redact_heel_paths(
+        page, heel_rects, _body_probe, heel_fills)
+    revealed = [r for r in heel_rects
+                if r.height >= 4 and not any(r == k for k in heel_kept)]
+
     scale = dpi / 72.0
-    pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), clip=render_rect, alpha=False)
-    arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, 3).copy()
+
+    def _render(pg):
+        px = pg.get_pixmap(matrix=fitz.Matrix(scale, scale), clip=render_rect, alpha=False)
+        return np.frombuffer(px.samples, dtype=np.uint8).reshape(px.height, px.width, 3).copy()
+
+    arr = _render(page)
     h, w = arr.shape[:2]
 
     stroke_widths, heel_fills = _drawing_maps(page)
@@ -1000,7 +1101,24 @@ def render_clean_design(pdf_path: str, dpi: int) -> tuple[np.ndarray, fitz.Rect]
         heel_band_px = None
     body_color = _dominant_body_color(arr, heel_band_px)
 
-    _remove_heel(arr, heel_rects, to_design_px, stroke_widths, body_color, heel_fills)
+    # Void check: a reveal is only correct when the artwork genuinely continues
+    # under the oval (Toyota's swirls). When it doesn't — small-motif or
+    # interrupted patterns (argyle, stripes, repeating icons) — removing the oval
+    # leaves a body-coloured hole the surrounding pattern doesn't have. Detect that
+    # and revert to the original page + the raster reconstruction (old behaviour).
+    if heel_removed and revealed and _reveal_left_void(arr, revealed, to_design_px, body_color):
+        page = fitz.open(pdf_path)[0]
+        arr = _render(page)
+        stroke_widths, heel_fills = _drawing_maps(page)
+        body_color = _dominant_body_color(arr, heel_band_px)
+        heel_removed, heel_kept = 0, heel_rects
+
+    # Revealed ovals + guide line are already correct from the render. Only the
+    # KEPT rects (body-coloured patches, or everything on a raster PDF where
+    # nothing could be removed) still need the raster reconstruction.
+    rects_for_raster = heel_kept if heel_removed else heel_rects
+    if rects_for_raster:
+        _remove_heel(arr, rects_for_raster, to_design_px, stroke_widths, body_color, heel_fills)
 
     return arr, flat_rect
 
