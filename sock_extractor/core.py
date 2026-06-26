@@ -670,44 +670,14 @@ def process_pdf(
         )
 
     fx0, fy0, fx1, fy1 = to_px(flat_rect)
-    design_img = img_full.crop((fx0, fy0, fx1, fy1)).copy()
 
-    arr = np.array(design_img)
-    h, w = arr.shape[:2]
+    # Design preview uses the SAME cleaned render as the production bitmap, so the
+    # heel matches exactly (vector reveal + safety gate) rather than the old raster
+    # fill — keeps the preview professional and consistent with the BMP.
+    clean_arr, _ = render_clean_design(pdf_path, dpi)
+    body_color = _dominant_body_color(clean_arr, None)
 
-    stroke_widths, heel_fills = _drawing_maps(page)
-
-    def to_design_px(hr, sw_pdf):
-        sw_half_px = max(2, int(round((sw_pdf / 2.0) * scale)) + 2)
-        cx0 = max(hr.x0, flat_rect.x0)
-        cy0 = max(hr.y0, flat_rect.y0)
-        cx1 = min(hr.x1, flat_rect.x1)
-        cy1 = min(hr.y1, flat_rect.y1)
-        rx0 = int(round((cx0 - flat_rect.x0) * scale)) - sw_half_px
-        ry0 = int(round((cy0 - flat_rect.y0) * scale)) - sw_half_px
-        rx1 = int(round((cx1 - flat_rect.x0) * scale)) + sw_half_px
-        ry1 = int(round((cy1 - flat_rect.y0) * scale)) + sw_half_px
-        rx0 = max(0, rx0)
-        ry0 = max(0, ry0)
-        rx1 = min(w, rx1)
-        ry1 = min(h, ry1)
-        return rx0, ry0, rx1, ry1
-
-    if heel_rects:
-        ys = []
-        for hr in heel_rects:
-            _, ry0, _, ry1 = to_design_px(hr, 0)
-            ys += [ry0, ry1]
-        heel_band_px = (min(ys), max(ys)) if ys else None
-    else:
-        heel_band_px = None
-    body_color = _dominant_body_color(arr, heel_band_px)
-
-    _remove_heel(arr, heel_rects, to_design_px, stroke_widths, body_color, heel_fills)
-
-    design_img = Image.fromarray(arr)
-
-    design_final = design_img.resize((target_w, target_h), Image.LANCZOS)
+    design_final = Image.fromarray(clean_arr).resize((target_w, target_h), Image.LANCZOS)
 
     design_path = os.path.join(out_dir, f"{base}_design.png")
     design_final.save(design_path, "PNG")
@@ -1310,6 +1280,37 @@ def _equalize_equal_width_stripes(result, nearest, H, target_h, W, P,
             y = y2
 
 
+def save_paletted_bmp(indices: np.ndarray, palette: list, path: str) -> None:
+    """Write an 8-bit BMP with a TIGHT palette (exactly len(palette) entries),
+    matching the known-good production bitmaps. PIL's P-mode writer always emits a
+    full 256-entry palette (colors_used=256); some production systems read the
+    palette as the literal list of thread colours and reject 256. This writes
+    colors_used=N with an N-entry palette and BI_RGB, bottom-up rows."""
+    import struct
+    H, W = indices.shape
+    n = len(palette)
+    row_pad = (-W) % 4
+    row_bytes = W + row_pad
+    image_size = row_bytes * H
+    pix_offset = 14 + 40 + n * 4
+    file_size = pix_offset + image_size
+    out = bytearray()
+    out += b"BM"
+    out += struct.pack("<IHHI", file_size, 0, 0, pix_offset)              # file header
+    out += struct.pack("<IiiHHIIiiII", 40, W, H, 1, 8, 0, image_size,
+                       0, 0, n, n)                                        # info header
+    for c in palette:                                                    # palette: B,G,R,0
+        out += bytes((int(c[2]), int(c[1]), int(c[0]), 0))
+    idx = indices.astype(np.uint8)
+    pad = b"\x00" * row_pad
+    for y in range(H - 1, -1, -1):                                       # bottom-up
+        out += idx[y].tobytes()
+        if row_pad:
+            out += pad
+    with open(path, "wb") as f:
+        f.write(out)
+
+
 def to_paletted_image(indices: np.ndarray, palette: list) -> Image.Image:
     H, W = indices.shape
     img = Image.new("P", (W, H))
@@ -1354,7 +1355,7 @@ def convert_pdf_to_bmp(
     pal_img = to_paletted_image(indices, palette)
 
     bmp_path = os.path.join(out_dir, f"{base}.bmp")
-    pal_img.save(bmp_path)
+    save_paletted_bmp(indices, palette, bmp_path)
 
     palette_path = os.path.join(out_dir, f"{base}_palette.json")
     with open(palette_path, "w", encoding="utf-8") as f:
