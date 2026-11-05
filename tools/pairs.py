@@ -15,6 +15,7 @@ def toks(name: str) -> set[str]:
 
 
 MANUAL = {  # ambiguous names
+    "Buck Bald Brewing_2603_Sock Mockups Final.pdf": "Buck Bald Brewing Kosmic Kitty Final Bitmap.bmp",
     "Comunidad_2604_Mockups Final 1.pdf": "Comunidad_2604_Bitmap 1 Adult Dress Casual Mini Crew.bmp",
     "Jarritos_2602_Sock Mockups FINAL Ankle.pdf": "Jarritos Ankle Bitmap.bmp",
     "Jarritos_2602_Sock Mockups FINAL Crew (Color).pdf": "Jarritos Crew Bitmap (Color).bmp",
