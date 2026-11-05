@@ -548,6 +548,16 @@ def main() -> None:
         ),
     )
 
+    pixel_stars = st.checkbox(
+        "Pixel-art stars",
+        value=False,
+        help=(
+            "Draw small round dots as pixel-art plus/diamond shapes, the way the "
+            "designer did on Christian Encounter Ranch's star field. Leave off for "
+            "designs whose dots should stay round."
+        ),
+    )
+
     uploaded = st.file_uploader(
         "Drop PDF(s) or mockup images (PNG/JPG) here or click to browse",
         type=["pdf", *IMAGE_TYPES],
@@ -635,6 +645,7 @@ def main() -> None:
                             str(job_dir),
                             target_w=tw,
                             target_h=th,
+                            pixel_stars=pixel_stars,
                         )
                         info["_basename"] = stem
                         info["target_w"], info["target_h"] = tw, th

@@ -1105,6 +1105,7 @@ def snap_and_downsample(
     edge_margin: int = 4,
     equalize_stripes: bool = True,
     mirror_symmetry: bool = False,
+    pixel_stars: bool = False,
 ) -> np.ndarray:
     """LAB nearest-color snap + mode pool to palette indices.
 
@@ -1158,6 +1159,8 @@ def snap_and_downsample(
     _checkerboard_tints(result, nearest, palette, P)
     if mirror_symmetry:
         result = _mirror_symmetric_bands(result, P)
+    if pixel_stars:
+        result = _pixel_art_dots(result, nearest)
     return result
 
 
@@ -1198,6 +1201,79 @@ def _checkerboard_tints(result, nearest, palette, P, mix_max: float = 0.85,
     even = (yy + xx) % 2 == 0
     result[mixed] = np.where(even, dark, light)[mixed]
 
+
+
+# Pixel-art stamps a designer uses for small round dots (Christian Encounter's
+# star field): ~9 px dot -> 5 px plus, ~18 px -> 13 px diamond, ~35 px -> 24 px
+# rounded diamond around a 2x2 core. Opt-in: on most designs the designers keep
+# dots round, and forcing this costs accuracy there (see RULES.md).
+def _dot_stamp(area: float):
+    if area < 4 or area >= 48:
+        return None
+    if area < 13.5:
+        r, even = 1, False
+    elif area < 26:
+        r, even = 2, False
+    else:
+        r, even = 2, True
+    pts = []
+    if not even:
+        pts = [(dy, dx) for dy in range(-r, r + 1) for dx in range(-r, r + 1) if abs(dy) + abs(dx) <= r]
+    else:
+        pts = [(dy, dx) for dy in range(-r - 1, r + 1) for dx in range(-r - 1, r + 1)
+               if abs(dy + 0.5) + abs(dx + 0.5) <= r + 1 + 1e-6]
+    return pts, even
+
+
+def _pixel_art_dots(result: np.ndarray, nearest: np.ndarray, off_x: float = 0.2,
+                    off_y: float = -0.4) -> np.ndarray:
+    """Replace small round dots (discs in the vector art, on a single-colour
+    surround) with the designer's pixel-art diamond/plus stamps."""
+    from scipy import ndimage as ndi
+
+    out = result.copy()
+    H, W = out.shape
+    h, w = nearest.shape
+    sy, sx = h / H, w / W
+    for k in np.unique(nearest):
+        lab, num = ndi.label(nearest == k)
+        if num == 0:
+            continue
+        sizes = np.bincount(lab.ravel())
+        for i, sl in enumerate(ndi.find_objects(lab), start=1):
+            if sl is None:
+                continue
+            hh, ww = sl[0].stop - sl[0].start, sl[1].stop - sl[1].start
+            if not (1.5 * sy <= hh <= 8 * sy and 1.5 * sx <= ww <= 8 * sx):
+                continue
+            if not (0.8 <= (hh / sy) / (ww / sx) <= 1.25):
+                continue
+            if not (0.66 <= sizes[i] / (hh * ww) <= 0.88):        # a disc fills pi/4
+                continue
+            y0, y1 = max(0, sl[0].start - 2), min(h, sl[0].stop + 2)
+            x0, x1 = max(0, sl[1].start - 2), min(w, sl[1].stop + 2)
+            ring = nearest[y0:y1, x0:x1][lab[y0:y1, x0:x1] != i]
+            vals, cnt = np.unique(ring, return_counts=True)
+            if cnt.max() < 0.85 * cnt.sum():
+                continue
+            st = _dot_stamp(sizes[i] / (sy * sx))
+            if st is None:
+                continue
+            pts, even = st
+            cy = (sl[0].start + sl[0].stop) / 2 / sy - off_y
+            cx = (sl[1].start + sl[1].stop) / 2 / sx - off_x
+            yc = int(round(cy)) if even else int(np.floor(cy))
+            xc = int(round(cx)) if even else int(np.floor(cx))
+            surround = int(vals[cnt.argmax()])
+            yy, xx = np.mgrid[max(0, yc - 6):min(H, yc + 6), max(0, xc - 6):min(W, xc + 6)]
+            blk = out[yy[0, 0]:yy[-1, 0] + 1, xx[0, 0]:xx[0, -1] + 1]
+            m = (blk == k) & ((np.abs(yy - cy + 0.5) + np.abs(xx - cx + 0.5)) <= 6)
+            blk[m] = surround
+            for dy, dx in pts:
+                y, x = yc + dy, xc + dx
+                if 0 <= y < H and 0 <= x < W:
+                    out[y, x] = k
+    return out
 
 def _mirror_symmetric_bands(idx, P, min_sym: float = 0.70, min_panel: int = 8,
                             sep_frac: float = 0.92) -> np.ndarray:
@@ -1373,6 +1449,7 @@ def convert_pdf_to_bmp(
     target_w: int = TARGET_W,
     target_h: int = TARGET_H,
     mirror_symmetry: bool = False,
+    pixel_stars: bool = False,
 ) -> dict:
     """Produce paletted BMP at target_w×target_h + metadata."""
     base = os.path.splitext(os.path.basename(pdf_path))[0]
@@ -1393,7 +1470,7 @@ def convert_pdf_to_bmp(
         raise RuntimeError("No swatch colors found in PDF.")
 
     indices = snap_and_downsample(hi_arr, palette, target_w, target_h,
-                                  mirror_symmetry=mirror_symmetry)
+                                  mirror_symmetry=mirror_symmetry, pixel_stars=pixel_stars)
     pal_img = to_paletted_image(indices, palette)
 
     bmp_path = os.path.join(out_dir, f"{base}.bmp")
@@ -1426,6 +1503,7 @@ def process_full_pdf(
     target_w: int = TARGET_W,
     target_h: int = TARGET_H,
     mirror_symmetry: bool = False,
+    pixel_stars: bool = False,
 ) -> dict:
     """Run preview extraction + BMP conversion; merged result dict.
 
@@ -1435,7 +1513,7 @@ def process_full_pdf(
     try:
         preview = process_pdf(pdf_path, out_dir, target_w=target_w, target_h=target_h)
         bmp_info = convert_pdf_to_bmp(pdf_path, out_dir, target_w=target_w, target_h=target_h,
-                                      mirror_symmetry=mirror_symmetry)
+                                      mirror_symmetry=mirror_symmetry, pixel_stars=pixel_stars)
     except Exception as vec_err:
         from .raster import process_image
         try:

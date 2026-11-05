@@ -39,6 +39,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("inputs", nargs="+")
     ap.add_argument("-o", "--out", default=str(ROOT / "output" / "batch"))
+    ap.add_argument("--pixel-stars", action="store_true",
+                    help="draw small round dots as pixel-art plus/diamond stamps")
     ap.add_argument("--size", help='force a size, e.g. "Athletic - Cotton & Wool/Crew"')
     a = ap.parse_args(argv)
     forced = find_spec(a.size) if a.size else None
@@ -63,7 +65,7 @@ def main(argv=None):
                 else:
                     r = resolve_output_size(str(f))
                     w, h, src = r["width"], r["height"], r["source"]
-                info = process_full_pdf(str(f), str(job), target_w=w, target_h=h)
+                info = process_full_pdf(str(f), str(job), target_w=w, target_h=h, pixel_stars=a.pixel_stars)
             else:
                 info = process_image(str(f), str(job),
                                      target_h=forced.height if forced else None)
