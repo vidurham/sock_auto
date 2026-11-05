@@ -261,14 +261,35 @@ def detect_swatches(a: np.ndarray, left_frac: float = 0.13) -> list[tuple[int, i
     runs = [r for r in runs if r[1] - r[0] < 0.2 * H]   # chips are small circles
     if not runs:
         return []
-    lens = np.array([r[1] - r[0] for r in runs])
-    D = float(np.max(lens))
-    out: list[tuple[int, tuple[int, int, int]]] = []
+    def hwidth(y):
+        """horizontal extent of the non-page run through (y, xc)"""
+        row = nonpage[y]
+        l = xc
+        while l > 0 and row[l - 1]:
+            l -= 1
+        r = xc
+        while r < lw - 1 and row[r + 1]:
+            r += 1
+        return r - l + 1
+
+    # Filled chips are circles: vertical run through the centre column ~= the
+    # horizontal width at its middle row. Header bands / text fail this test.
+    circles = []
     for y0, y1 in runs:
-        if y1 - y0 >= 0.6 * D:            # filled chip
-            m0, m1 = y0 + (y1 - y0) // 4, y1 - (y1 - y0) // 4
-            patch = region[m0:m1, max(0, xc - 6): xc + 7].reshape(-1, 3)
-            out.append((y0, tuple(int(v) for v in np.median(patch, 0))))
+        L = y1 - y0
+        if L < 0.02 * H:
+            continue
+        if 0.8 <= hwidth((y0 + y1) // 2) / L <= 1.25:
+            circles.append((y0, y1))
+    if not circles:
+        return []
+    D = float(np.median([y1 - y0 for y0, y1 in circles]))
+    out: list[tuple[int, tuple[int, int, int]]] = []
+    for y0, y1 in circles:
+        m0, m1 = y0 + (y1 - y0) // 4, y1 - (y1 - y0) // 4
+        k = max(2, (y1 - y0) // 8)
+        patch = region[m0:m1, max(0, xc - k): xc + k + 1].reshape(-1, 3)
+        out.append((y0, tuple(int(v) for v in np.median(patch, 0))))
     # white chips are outline-only: two short arcs ~D apart with page between
     short = [r for r in runs if r[1] - r[0] <= 6]
     for (a0, a1), (b0, b1) in zip(short, short[1:]):
