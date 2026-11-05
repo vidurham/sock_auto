@@ -36,7 +36,7 @@ python batch.py path/to/mockups/        # PDFs and/or PNG/JPG → output/batch/<
 ## Two extraction paths
 
 1. **Vector PDF** (`sock_extractor/core.py`) is the most exact. Shapes and colors are read from the PDF itself.
-   - A cuff guard trims the cuff only when a full-width line sits at the cuff position *and* trimming makes the shape match a production size better.
+   - The FLAT VIEW rect is already the body without the cuff, so no cuff trimming is needed. An earlier cuff guard was removed because it cut Spencers at a white stripe.
 2. **Image** (`sock_extractor/raster.py`) works on PNG/JPG screenshots, and on flattened PDFs automatically when the vector path fails.
    - It finds the flat view from the blue heel line, the outline edges, the cuff/toe lines and the scallop bottoms.
 
