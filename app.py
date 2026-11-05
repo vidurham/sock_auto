@@ -34,6 +34,9 @@ from PIL import Image, ImageDraw
 
 from bitmap_editor import bitmap_editor
 from sock_extractor.core import process_full_pdf, resolve_output_size
+from sock_extractor.raster import process_image
+
+IMAGE_TYPES = ("png", "jpg", "jpeg", "tif", "tiff", "bmp", "webp")
 from sock_extractor.product_specs import (
     DEFAULT_SPEC,
     DEFAULT_SPEC_INDEX,
@@ -546,8 +549,8 @@ def main() -> None:
     )
 
     uploaded = st.file_uploader(
-        "Drop PDF(s) here or click to browse",
-        type=["pdf"],
+        "Drop PDF(s) or mockup images (PNG/JPG) here or click to browse",
+        type=["pdf", *IMAGE_TYPES],
         accept_multiple_files=True,
     )
 
@@ -585,7 +588,9 @@ def main() -> None:
                     safe_name = "".join(
                         c for c in orig_name if c.isascii() and (c.isalnum() or c in "._- ")
                     )
-                    if not safe_name.lower().endswith(".pdf"):
+                    ext = Path(orig_name).suffix.lower().lstrip(".")
+                    is_image = ext in IMAGE_TYPES
+                    if not is_image and not safe_name.lower().endswith(".pdf"):
                         safe_name = Path(orig_name).stem + ".pdf"
                     stem = Path(safe_name).stem
                     job_dir = run_dir / f"{i:02d}_{stem}"
@@ -595,6 +600,24 @@ def main() -> None:
                         f.write(uf.getbuffer())
 
                     try:
+                        if is_image:
+                            # Image mockup: no text layer, so size comes from the
+                            # body's proportions (snapped to a production height)
+                            # unless a size was chosen.
+                            forced = None if size_choice == AUTO_SIZE else size_choice
+                            info = process_image(
+                                str(pdf_path), str(job_dir),
+                                target_w=forced.width if forced else 168,
+                                target_h=forced.height if forced else None,
+                            )
+                            info["_basename"] = stem
+                            info["size_label"] = (
+                                forced.label if forced
+                                else f"From artwork proportions · 168×{info['target_h']} px"
+                            )
+                            info["size_source"] = "manual" if forced else "auto (proportions)"
+                            results.append(info)
+                            continue
                         if size_choice == AUTO_SIZE:
                             r = resolve_output_size(str(pdf_path))
                             tw, th = r["width"], r["height"]

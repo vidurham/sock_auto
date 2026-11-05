@@ -97,6 +97,62 @@ def find_flat_view_rect(page, spans):
     return fitz.Rect(best)
 
 
+
+CUFF_FRAC = 0.088   # cuff band height / flat width (measured on CSL templates)
+
+
+def find_cuff_line_y(page, flat_rect) -> float | None:
+    """If the chosen FLAT VIEW rect still CONTAINS the cuff band, return the y of
+    the cuff line (in PDF points); else None.
+
+    Production bitmaps never include the cuff (verified on every finished bitmap
+    in finished_bit/: the art starts directly below the cuff line). The cuff line
+    is a full-width horizontal stroke ~CUFF_FRAC * width below the top edge. We
+    only trust a vector line that spans the whole width at that position, so if
+    the selected rect is already the body (no cuff inside), nothing changes.
+    """
+    w = flat_rect.width
+    exp = flat_rect.y0 + CUFF_FRAC * w
+    tol = 0.035 * w
+    best = None
+    for d in page.get_drawings():
+        for it in d.get("items") or []:
+            ys = []
+            if it[0] == "l":
+                p1, p2 = it[1], it[2]
+                if abs(p1.y - p2.y) < 0.5:
+                    ys.append((p1.y, min(p1.x, p2.x), max(p1.x, p2.x)))
+            elif it[0] == "re":
+                r = it[1]
+                ys.append((r.y0, r.x0, r.x1))
+                ys.append((r.y1, r.x0, r.x1))
+            for y, xa, xb in ys:
+                if abs(y - exp) > tol:
+                    continue
+                if xa > flat_rect.x0 + 0.03 * w or xb < flat_rect.x1 - 0.03 * w:
+                    continue
+                if y <= flat_rect.y0 + 0.02 * w:
+                    continue
+                if best is None or abs(y - exp) < abs(best - exp):
+                    best = y
+    return best
+
+
+def body_rect(page, flat_rect) -> fitz.Rect:
+    """FLAT VIEW rect with the cuff band removed (if the rect included it)."""
+    cy = find_cuff_line_y(page, flat_rect)
+    if cy is None:
+        return fitz.Rect(flat_rect)
+    trimmed = fitz.Rect(flat_rect.x0, cy, flat_rect.x1, flat_rect.y1)
+    # Safety gate: only trim when the trimmed body matches a production size
+    # better than the untrimmed rect (a full-width design stripe that happens to
+    # sit at the cuff position must not cut the artwork).
+    def err(r):
+        ph = 168.0 * r.height / r.width
+        return min(abs(ph - k) / k for k in KNOWN_HEIGHTS)
+    return trimmed if err(trimmed) < err(flat_rect) else fitz.Rect(flat_rect)
+
+
 def find_heel_shapes(page, flat_rect):
     """Find heel oval halves + heel guide line; return list of fitz.Rect in PDF points.
 
@@ -1020,9 +1076,12 @@ def render_clean_design(pdf_path: str, dpi: int) -> tuple[np.ndarray, fitz.Rect]
             stroke_w = d.get("width") or 0.0
             break
     inset = stroke_w / 3.0
+    top = body_rect(page, flat_rect).y0
+    if top > flat_rect.y0:            # cuff was inside the rect: start below its line
+        top += stroke_w
     render_rect = fitz.Rect(
         flat_rect.x0 + inset,
-        flat_rect.y0 + inset,
+        top + inset,
         flat_rect.x1 - inset,
         flat_rect.y1 - inset,
     )
@@ -1385,11 +1444,25 @@ def process_full_pdf(
     target_h: int = TARGET_H,
     mirror_symmetry: bool = False,
 ) -> dict:
-    """Run preview extraction + BMP conversion; merged result dict."""
-    preview = process_pdf(pdf_path, out_dir, target_w=target_w, target_h=target_h)
-    bmp_info = convert_pdf_to_bmp(pdf_path, out_dir, target_w=target_w, target_h=target_h,
-                                  mirror_symmetry=mirror_symmetry)
+    """Run preview extraction + BMP conversion; merged result dict.
+
+    Vector path first (exact colours/shapes from the PDF). If the PDF has no
+    usable vector FLAT VIEW (flattened/image-only export), fall back to the
+    image-based extractor on the rendered page."""
+    try:
+        preview = process_pdf(pdf_path, out_dir, target_w=target_w, target_h=target_h)
+        bmp_info = convert_pdf_to_bmp(pdf_path, out_dir, target_w=target_w, target_h=target_h,
+                                      mirror_symmetry=mirror_symmetry)
+    except Exception as vec_err:
+        from .raster import process_image
+        try:
+            info = process_image(pdf_path, out_dir, target_w=target_w, target_h=target_h)
+        except Exception as ras_err:
+            raise RuntimeError(f"vector path: {vec_err}; image path: {ras_err}") from ras_err
+        info["fallback_reason"] = str(vec_err)
+        return info
     preview.update(bmp_info)
+    preview["method"] = "vector"
     return preview
 
 # ---------- automatic size detection ----------
@@ -1511,7 +1584,7 @@ def resolve_output_size(pdf_path: str, override_spec: ProductSpec | None = None)
         doc = fitz.open(pdf_path)
         page = doc[0]
         spans = get_text_spans(page)
-        flat_rect = find_flat_view_rect(page, spans)
+        flat_rect = body_rect(page, find_flat_view_rect(page, spans))
         if flat_rect is not None and flat_rect.width > 0:
             prop_h = 168.0 * flat_rect.height / flat_rect.width
     except Exception:
