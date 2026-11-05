@@ -79,6 +79,17 @@ Size detection is correct on 27 of 30. The misses are Coffman (309 vs 310 for th
 - **Image-only PDFs** (Toyota) are handled by the image extractor. The size comes from the body proportions, and the chips are found by circle shape.
 - **The real bitmaps follow the code's size table, not the cheat sheet.** For example: ankle 230, quarter 310 (one 309), nylon mini crew 372, OTC 550, knee high 614, ski 625.
 
+### Designer rules tested and rejected (so nobody re-tries them blind)
+
+| Idea | Result on 30 designs |
+|---|---|
+| Thin lines win the pixel: a minority colour forming a thin line takes the pixel (whiskers, outlines) | Worse at every setting tried: hurt 9–26 designs (up to −1.7% on one), best gain +0.24%. Designers thicken some lines and drop others. |
+| Repeat lock: copy one half of the sock onto the other | Only Maryland, where the artwork itself repeats 98.5%, is safe, and it gains just +0.15%. Alameda gains +1%, but only because the designer forced a repeat the artwork doesn't have; at that threshold Chicago, Sedona and others lose 4–7%. |
+| Learned per-pixel model, tested leave-one-design-out | 94.58% vs 94.69% for plain coverage |
+| Nearest-neighbour sampling at the best of 64 phases | 94.95% even when the phase is picked per design with hindsight |
+
+Kosmic Kitty raw vs final: the designer's own raw export matches their final bitmap only **94.55%**. Our output matches the final at **95.94%**. The remaining gap is hand artwork done after export.
+
 ## Earlier screenshot results (image path, `python tools/score.py`)
 
 Chicago 96.4%, Jarritos 97.8%, Quiet Mountain 97.8%, OB Sedona 97.7%.
