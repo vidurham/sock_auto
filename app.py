@@ -7,8 +7,9 @@ Run from this folder (works even when Scripts\\ is not on PATH):
 
 Or double-click run.bat (Windows).
 
-Password: set APP_PASSWORD in Streamlit Cloud → Settings → Secrets, or in
-`.streamlit/secrets.toml` locally (see `.streamlit/secrets.toml.example`).
+Password: optional. If APP_PASSWORD is set (Streamlit Cloud → Settings → Secrets,
+`.streamlit/secrets.toml`, or the environment) a login is shown; if it is not
+set, the app opens directly (local use).
 """
 
 from __future__ import annotations
@@ -285,11 +286,9 @@ def _require_password() -> bool:
 
     expected = _app_password()
     if not expected:
-        st.error(
-            "APP_PASSWORD is not configured. Add it under Streamlit Cloud "
-            "→ Settings → Secrets, or set APP_PASSWORD in your environment."
-        )
-        return False
+        # No password configured: local use, open straight to the app.
+        # The hosted deployment sets APP_PASSWORD in its secrets, so it keeps the login.
+        return True
 
     _render_login_page(expected)
     return False
@@ -514,7 +513,7 @@ def main() -> None:
     if not _require_password():
         st.stop()
 
-    if REQUIRE_PASSWORD:
+    if REQUIRE_PASSWORD and _app_password():
         _, logout_col = st.columns([5, 1])
         with logout_col:
             if st.button("Log out", type="secondary", width="stretch"):

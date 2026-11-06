@@ -12,9 +12,9 @@ Needs Python 3.10+.
 pip install -r requirements.txt
 ```
 
-The app is password-protected. Copy `.streamlit/secrets.toml.example` to
-`.streamlit/secrets.toml` and set `APP_PASSWORD`, or set an `APP_PASSWORD`
-environment variable.
+No password is needed to run it locally. To add a login (as the hosted version
+has), copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml` and set
+`APP_PASSWORD`, or set an `APP_PASSWORD` environment variable.
 
 ## Run the app
 
@@ -26,10 +26,9 @@ python -m streamlit run app.py
 
 Open the address it prints (usually http://localhost:8501). Then:
 
-1. Sign in.
-2. Leave **Output size** on Auto-detect, or pick a size to force it.
-3. Drop in PDFs or images and click **Process PDFs**.
-4. Download each BMP, or everything as a ZIP.
+1. Leave **Output size** on Auto-detect, or pick a size to force it.
+2. Drop in PDFs or images and click **Process PDFs**.
+3. Download each BMP, or everything as a ZIP.
 
 **Edit bitmap** opens a pixel editor for touch-ups. **Pixel-art stars** is
 optional: it draws small round dots as plus/diamond shapes.
